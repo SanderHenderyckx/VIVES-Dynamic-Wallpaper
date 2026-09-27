@@ -63,18 +63,54 @@ def s(value):
 # ---------- VIVES DATA ----------
 
 def load_token():
-    with open(TOKEN_FILE, encoding="utf-8") as f:
-        token = json.load(f)["id_token"]
+    token = None
 
-    # Controleer vervaldatum van de JWT.
-    payload = token.split(".")[1]
-    payload += "=" * (-len(payload) % 4)
+    # Probeer bestaande token te lezen en te controleren.
+    if TOKEN_FILE.exists():
+        try:
+            with open(TOKEN_FILE, encoding="utf-8") as f:
+                token = json.load(f)["id_token"]
 
-    claims = json.loads(
-        base64.urlsafe_b64decode(payload).decode("utf-8")
-    )
+            # JWT payload proberen te lezen.
+            payload = token.split(".")[1]
+            payload += "=" * (-len(payload) % 4)
 
-    expires_at = datetime.fromtimestamp(claims["exp"])
+            claims = json.loads(
+                base64.urlsafe_b64decode(payload).decode("utf-8")
+            )
+
+            expires_at = datetime.fromtimestamp(claims["exp"])
+
+        except (json.JSONDecodeError, KeyError, IndexError,
+                ValueError, UnicodeDecodeError, TypeError):
+            print("Ongeldige VIVES-token gevonden.")
+            token = None
+
+    # Geen bruikbare token? Opnieuw inloggen.
+    if not token:
+        print("VIVES-login wordt gestart...")
+
+        subprocess.run(
+            [
+                str(PYTHON_EXE),
+                str(BASE / "vives_login.py")
+            ],
+            check=True
+        )
+
+        # Nieuwe token opnieuw lezen.
+        with open(TOKEN_FILE, encoding="utf-8") as f:
+            token = json.load(f)["id_token"]
+
+        # Nieuwe token controleren.
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+
+        claims = json.loads(
+            base64.urlsafe_b64decode(payload).decode("utf-8")
+        )
+
+        expires_at = datetime.fromtimestamp(claims["exp"])
 
     # 10 minuten marge.
     if (
@@ -97,7 +133,6 @@ def load_token():
             token = json.load(f)["id_token"]
 
     return token
-
 
 token = load_token()
 
