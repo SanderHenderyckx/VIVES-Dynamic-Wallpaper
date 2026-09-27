@@ -4,53 +4,68 @@ Automatische Windows-bureaubladachtergrond voor het VIVES-lessenrooster.
 
 Het project haalt het persoonlijke rooster op via de VIVES Plus API, genereert een donkere wallpaper met de lessen van vandaag, morgen en overmorgen, en stelt die afbeelding automatisch in als Windows-bureaubladachtergrond.
 
-De huidige versie is in de eerste plaats bedoeld voor VIVES-studenten. Later kan de kalenderbron eventueel verder worden losgekoppeld van de wallpaperlogica.
+De huidige versie is gericht op VIVES-studenten. De kalenderbron en de wallpaperlogica kunnen later verder van elkaar worden losgekoppeld.
 
 ---
 
 ## 1. Wat doet het systeem?
 
-Elke uur draait `wallpaper.py` automatisch via Windows Taakplanner.
+`wallpaper.py` wordt automatisch uitgevoerd via Windows Taakplanner.
 
 De normale flow is:
 
 ```text
 Windows Task Scheduler
-        ↓
+        |
+        v
 wallpaper.py
-        ↓
+        |
+        v
 JWT uit jwt.json lezen
-        ↓
-JWT controleren op exp (vervaldatum)
-        ↓
+        |
+        v
+JWT controleren op exp
+        |
+        v
 VIVES API /api/events
-        ↓
-rooster voor vandaag + 2 dagen
-        ↓
-wallpaper genereren
-        ↓
-Windows wallpaper automatisch aanpassen
+        |
+        v
+Rooster voor vandaag + 2 dagen
+        |
+        v
+Wallpaper genereren
+        |
+        v
+Windows wallpaper aanpassen
 ```
 
-Als de JWT verlopen is of minder dan 10 minuten geldig blijft:
+Als de JWT verlopen is of minder dan 10 minuten geldig blijft, wordt eerst een nieuwe token opgehaald:
 
 ```text
 wallpaper.py
-     ↓
+        |
+        v
 vives_login.py
-     ↓
-aparte Chromium-browser
-     ↓
+        |
+        v
+Aparte Chromium-browser
+        |
+        v
 VIVES-account login
-     ↓
+        |
+        v
 KU Leuven Authenticator indien nodig
-     ↓
+        |
+        v
 VIVES Plus /mobile/jwt
-     ↓
-nieuwe id_token
-     ↓
+        |
+        v
+Nieuwe id_token
+        |
+        v
 jwt.json vernieuwen
-     ↓
+        |
+        v
 wallpaper.py gaat verder
 ```
 
@@ -81,13 +96,13 @@ Taken:
 - lange vaknamen afkappen wanneer nodig
 - wallpaper tekenen met Pillow
 - wallpaper opslaan als PNG
-- Windows opdracht geven om de nieuwe PNG als bureaubladachtergrond te gebruiken
+- Windows opdracht geven om de PNG als bureaubladachtergrond te gebruiken
 
 ### `vives_login.py`
 
 Verzorgt de interactieve VIVES-authenticatie en haalt een nieuwe JWT op.
 
-Het programma gebruikt Playwright met een apart persistent Chromium-profiel:
+Playwright gebruikt hiervoor een apart persistent Chromium-profiel:
 
 ```text
 %USERPROFILE%\VivesWallpaper\vives_browser
@@ -99,11 +114,11 @@ Na het inloggen wordt binnen dezelfde browsercontext:
 https://plus.vives.be/mobile/jwt
 ```
 
-geopend. De JSON-response bevat een `id_token`, die lokaal wordt opgeslagen in `jwt.json`.
+geopend. De response bevat een `id_token`, die lokaal wordt opgeslagen in `jwt.json`.
 
 ### `config.json`
 
-Bevat de beperkte gebruikersinstellingen:
+Bevat de gebruikersinstellingen:
 
 ```json
 {
@@ -117,7 +132,7 @@ Bevat de beperkte gebruikersinstellingen:
 - `show_location` — lokaal wel of niet tonen
 - `show_update_time` — tijdstip van de laatste wallpaper-update wel of niet tonen
 
-Ontwerpkeuzes zoals lettertypes, afmetingen en positionering blijven in de Python-code staan.
+Ontwerpkeuzes zoals fonts, afmetingen en positionering blijven in de Python-code.
 
 ### `README.md`
 
@@ -125,19 +140,19 @@ Deze documentatie.
 
 ### `.gitignore`
 
-Zorgt ervoor dat lokale en gevoelige bestanden niet per ongeluk door Git worden meegenomen.
+Sluit lokale en gevoelige bestanden uit van Git.
 
 ### `jwt.json` — lokaal
 
 Bevat de huidige VIVES `id_token`.
 
-**Niet delen en nooit committen naar Git.**
+Niet delen en nooit committen naar Git.
 
 ### `vives_browser\` — lokaal
 
 Persistent Chromium-profiel voor Playwright.
 
-Dit kan sessie- en authenticatiegegevens bevatten en moet privé blijven.
+Kan sessie- en authenticatiegegevens bevatten en moet privé blijven.
 
 ### `vives_wallpaper.png` — lokaal
 
@@ -176,7 +191,7 @@ weergegeven.
 
 De vaknaam komt uit `description` en gebruikt `title` als fallback.
 
-De API levert per event ook `groupInfo`. Dat wordt bewust niet gebruikt als algemene klasgroep: een student kan vakken volgen met verschillende groepen of een persoonlijk traject hebben, en een event kan bijvoorbeeld voor `2BIT + STVBIT` gelden zonder dat dit de vaste groep van de student is.
+De API levert per event ook `groupInfo`. Dat wordt bewust niet als algemene klasgroep gebruikt. Een student kan een persoonlijk traject hebben en lessen volgen die aan verschillende groepen gekoppeld zijn.
 
 ---
 
@@ -184,7 +199,7 @@ De API levert per event ook `groupInfo`. Dat wordt bewust niet gebruikt als alge
 
 De wallpaper gebruikt een donkere achtergrond en een sobere typografische hiërarchie.
 
-Per les wordt informatie als volgt weergegeven:
+Per les wordt informatie zo weergegeven:
 
 ```text
 08:30–10:30   H - 4.17
@@ -197,31 +212,33 @@ Locaties worden verkort zodat extra informatie zoals lokaaltype en capaciteit ni
 
 ```text
 H - 4.17 leslokaal met stopc. (28p)
-→ H - 4.17
+-> H - 4.17
 
 H - 3.05 aula (90p)
-→ H - 3.05
+-> H - 3.05
 ```
 
 Lange vaknamen worden automatisch afgekapt als ze niet binnen de beschikbare breedte passen.
+
+De drie dagen worden compact onder elkaar weergegeven zodat er voldoende verticale ruimte overblijft.
 
 ---
 
 ## 5. Schermresolutie en schaal
 
-Het ontwerp werd oorspronkelijk gemaakt voor 1920×1080, maar de huidige versie leest het schermformaat automatisch uit.
+Het ontwerp werd oorspronkelijk gemaakt voor 1920x1080, maar de huidige versie leest het schermformaat automatisch uit.
 
 Voor de schermmetingen wordt DPI-awareness ingeschakeld zodat Windows niet onbedoeld geschaalde afmetingen teruggeeft.
 
 De layout, fonts en afstanden worden proportioneel geschaald vanaf het referentieformaat:
 
 ```text
-1920×1080 → schaal 1.000
-2560×1440 → schaal ≈ 1.333
-3840×2160 → schaal 2.000
+1920x1080 -> schaal 1.000
+2560x1440 -> schaal ongeveer 1.333
+3840x2160 -> schaal 2.000
 ```
 
-Het ontwerp gebruikt de kleinste schaal van breedte en hoogte zodat de verhoudingen behouden blijven.
+De kleinste schaal van breedte en hoogte wordt gebruikt zodat de verhoudingen behouden blijven.
 
 ---
 
@@ -231,23 +248,29 @@ De authenticatieflow is:
 
 ```text
 VIVES Plus login
-      ↓
+      |
+      v
 KU Leuven authenticatie
-      ↓
+      |
+      v
 VIVES-account
-      ↓
+      |
+      v
 KU Leuven Authenticator indien vereist
-      ↓
+      |
+      v
 VIVES Plus
-      ↓
+      |
+      v
 /mobile/jwt
-      ↓
+      |
+      v
 {"id_token":"eyJ..."}
 ```
 
-Een gewone Python-request zonder een geldige ingelogde browsercontext kan de interactieve loginflow niet vervangen. Daarom gebruikt `vives_login.py` Playwright.
+Een gewone Python-request kan de interactieve loginflow niet vervangen. Daarom gebruikt `vives_login.py` Playwright.
 
-Playwright gebruikt een apart persistent profiel zodat de normale Chrome-profielgegevens van de gebruiker niet nodig zijn.
+De normale Chrome-sessie van de gebruiker wordt niet gebruikt. Het project gebruikt een apart persistent browserprofiel.
 
 ---
 
@@ -273,8 +296,6 @@ Normaal staat:
 TEST_FORCE_RELOGIN = False
 ```
 
-Er wordt niet gewacht tot de echte token verloopt om de flow te kunnen testen. Met `TEST_FORCE_RELOGIN = True` kan de volledige herloginflow geforceerd worden.
-
 ---
 
 ## 8. Herlogin-flow
@@ -296,13 +317,9 @@ Wanneer de JWT bijna verlopen is:
 12. wallpaper wordt opnieuw gemaakt
 ```
 
-`wallpaper.py` wacht op `vives_login.py` met:
+`wallpaper.py` wacht op `vives_login.py` met `subprocess.run(..., check=True)`.
 
-```python
-subprocess.run(..., check=True)
-```
-
-De Python-interpreter voor dat subprocess wordt niet meer hardcoded als een specifiek gebruikerspad. De code gebruikt de actieve Python-installatie als uitgangspunt:
+De Python-interpreter voor het subprocess wordt niet als een specifiek gebruikerspad hardcoded. De code gebruikt:
 
 ```python
 PYTHON_EXE = Path(sys.executable).with_name("python.exe")
@@ -356,7 +373,7 @@ Zet tijdelijk in `wallpaper.py`:
 TEST_FORCE_RELOGIN = True
 ```
 
-Run vervolgens:
+Run daarna:
 
 ```cmd
 cd %USERPROFILE%\VivesWallpaper && python wallpaper.py
@@ -392,7 +409,7 @@ VIVES Wallpaper
 
 De taak gebruikt `pythonw.exe` zodat een normale wallpaper-update geen zichtbaar terminalvenster opent.
 
-De precieze locatie van Python kan per computer verschillen. De repositorycode zelf probeert geen gebruikersnaam of absoluut Python-pad te veronderstellen.
+De precieze Python-locatie kan per computer verschillen. De repositorycode zelf gebruikt geen hardcoded gebruikersnaam voor de Python-interpreter.
 
 Bij een herauthenticatie kan wel een zichtbaar Chromium/loginvenster verschijnen. Dat is bewust: de gebruiker moet dan interactief authenticeren.
 
@@ -465,17 +482,15 @@ wallpaper.py
 
 Lokale authenticatie- en runtimebestanden horen niet in de repository.
 
-Een goede README moet vooral duidelijk maken wat het project doet, hoe het gebruikt wordt en wat iemand nodig heeft om ermee te starten. GitHub raadt dit expliciet aan voor repositories. citeturn942922search1turn942922search2
-
 ---
 
 ## 15. AI-assisted development
 
 This project was developed with substantial assistance from ChatGPT.
 
-The implementation, architecture and code were reviewed, tested and adapted during development, including testing the VIVES authentication flow, JWT renewal, API access, wallpaper generation and Windows Task Scheduler integration.
+The implementation, architecture and code were reviewed, tested and adapted during development, including the VIVES authentication flow, JWT renewal, API access, wallpaper generation and Windows Task Scheduler integration.
 
-AI-generated code was not treated as automatically correct; functionality and changes were tested during development. GitHub similarly recommends reviewing and validating AI-generated code before relying on it. citeturn942922search0
+AI-generated code was reviewed and tested during development rather than treated as automatically correct.
 
 ---
 
@@ -491,7 +506,7 @@ Het project gebruikt de huidige structuur van `/api/events`. Wijzigingen aan de 
 
 ### Interactieve herlogin
 
-De eerste login en herauthenticatie zijn bewust interactief. Het VIVES-wachtwoord wordt niet geautomatiseerd opgeslagen.
+De eerste login en herauthenticatie zijn bewust interactief. Het VIVES-wachtwoord wordt niet opgeslagen.
 
 ### Windows
 
@@ -505,72 +520,14 @@ De huidige versie is specifiek gekoppeld aan VIVES Plus. Een toekomstige uitbrei
 
 ## 17. Mogelijke toekomstige uitbreidingen
 
-Mogelijke vervolgstappen:
-
 - generieke kalenderprovider naast VIVES
 - ondersteuning voor iCalendar (`.ics`)
 - tweede agenda of takenlijst
 - deadlines of examens
 - verdere optimalisatie voor ultrawide schermen
-- betere installatie voor andere VIVES-studenten
+- eenvoudigere installatie voor andere VIVES-studenten
 - gebruikersconfiguratie zonder Python-code te wijzigen
 
 Deze uitbreidingen zijn bewust nog geen onderdeel van de huidige stabiele versie.
 
 ---
-
-## 18. Architectuuroverzicht
-
-```text
-                    ┌──────────────────────────┐
-                    │ Windows Task Scheduler   │
-                    │ elke 1 uur               │
-                    └────────────┬─────────────┘
-                                 │
-                                 ▼
-                    ┌──────────────────────────┐
-                    │ wallpaper.py             │
-                    └────────────┬─────────────┘
-                                 │
-                         JWT controleren
-                                 │
-                    ┌────────────┴─────────────┐
-                    │                          │
-                 geldig                bijna/verlopen
-                    │                          │
-                    ▼                          ▼
-              VIVES API                vives_login.py
-                    │                          │
-                    │                   Playwright
-                    │                          │
-                    │                 VIVES / KU Leuven
-                    │                          │
-                    │                  Authenticator
-                    │                          │
-                    │                          ▼
-                    │                    /mobile/jwt
-                    │                          │
-                    │                    nieuwe JWT
-                    │                          │
-                    │                     jwt.json
-                    │                          │
-                    └────────────┬─────────────┘
-                                 ▼
-                    ┌──────────────────────────┐
-                    │ PNG genereren            │
-                    │ + wallpaper instellen    │
-                    └──────────────────────────┘
-```
-
----
-
-## 19. Referenties
-
-- VIVES Plus: https://plus.vives.be/mobile/login
-- Python `subprocess`: https://docs.python.org/3/library/subprocess.html
-- Python `sys.executable`: https://docs.python.org/3/library/sys.html
-- Pillow `ImageDraw`: https://pillow.readthedocs.io/en/latest/reference/ImageDraw.html
-- Playwright browser automation: https://playwright.dev/python/docs/api/class-browsertype
-- GitHub repository best practices: https://docs.github.com/en/repositories/creating-and-managing-repositories/best-practices-for-repositories
-- GitHub README documentation: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-readmes
-- GitHub guidance on reviewing AI-generated code: https://docs.github.com/en/copilot/tutorials/review-ai-generated-code
