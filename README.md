@@ -16,26 +16,19 @@ De normale flow is:
 
 ```text
 Windows Task Scheduler
-        |
-        v
+        ↓
 wallpaper.py
-        |
-        v
+        ↓
 JWT uit jwt.json lezen
-        |
-        v
+        ↓
 JWT controleren op exp
-        |
-        v
+        ↓
 VIVES API /api/events
-        |
-        v
+        ↓
 Rooster voor vandaag + 2 dagen
-        |
-        v
+        ↓
 Wallpaper genereren
-        |
-        v
+        ↓
 Windows wallpaper aanpassen
 ```
 
@@ -43,29 +36,21 @@ Als de JWT verlopen is of minder dan 10 minuten geldig blijft, wordt eerst een n
 
 ```text
 wallpaper.py
-        |
-        v
+        ↓
 vives_login.py
-        |
-        v
+        ↓
 Aparte Chromium-browser
-        |
-        v
+        ↓
 VIVES-account login
-        |
-        v
+        ↓
 KU Leuven Authenticator indien nodig
-        |
-        v
+        ↓
 VIVES Plus /mobile/jwt
-        |
-        v
+        ↓
 Nieuwe id_token
-        |
-        v
+        ↓
 jwt.json vernieuwen
-        |
-        v
+        ↓
 wallpaper.py gaat verder
 ```
 
@@ -118,7 +103,7 @@ geopend. De response bevat een `id_token`, die lokaal wordt opgeslagen in `jwt.j
 
 ### `config.json`
 
-Bevat de gebruikersinstellingen:
+Bevat de beperkte gebruikersinstellingen:
 
 ```json
 {
@@ -212,10 +197,10 @@ Locaties worden verkort zodat extra informatie zoals lokaaltype en capaciteit ni
 
 ```text
 H - 4.17 leslokaal met stopc. (28p)
--> H - 4.17
+→ H - 4.17
 
 H - 3.05 aula (90p)
--> H - 3.05
+→ H - 3.05
 ```
 
 Lange vaknamen worden automatisch afgekapt als ze niet binnen de beschikbare breedte passen.
@@ -226,16 +211,16 @@ De drie dagen worden compact onder elkaar weergegeven zodat er voldoende vertica
 
 ## 5. Schermresolutie en schaal
 
-Het ontwerp werd oorspronkelijk gemaakt voor 1920x1080, maar de huidige versie leest het schermformaat automatisch uit.
+Het ontwerp werd oorspronkelijk gemaakt voor 1920×1080, maar de huidige versie leest het schermformaat automatisch uit.
 
 Voor de schermmetingen wordt DPI-awareness ingeschakeld zodat Windows niet onbedoeld geschaalde afmetingen teruggeeft.
 
 De layout, fonts en afstanden worden proportioneel geschaald vanaf het referentieformaat:
 
 ```text
-1920x1080 -> schaal 1.000
-2560x1440 -> schaal ongeveer 1.333
-3840x2160 -> schaal 2.000
+1920×1080 → schaal 1.000
+2560×1440 → schaal ≈ 1.333
+3840×2160 → schaal 2.000
 ```
 
 De kleinste schaal van breedte en hoogte wordt gebruikt zodat de verhoudingen behouden blijven.
@@ -248,23 +233,17 @@ De authenticatieflow is:
 
 ```text
 VIVES Plus login
-      |
-      v
+      ↓
 KU Leuven authenticatie
-      |
-      v
+      ↓
 VIVES-account
-      |
-      v
+      ↓
 KU Leuven Authenticator indien vereist
-      |
-      v
+      ↓
 VIVES Plus
-      |
-      v
+      ↓
 /mobile/jwt
-      |
-      v
+      ↓
 {"id_token":"eyJ..."}
 ```
 
@@ -456,7 +435,7 @@ vives_browser/
 vives_wallpaper.png
 ```
 
-`jwt.json` bevat een authenticatietoken. De inhoud mag nooit publiek worden gedeeld.
+`jwt.json` bevat een authenticatoken. De inhoud mag nooit publiek worden gedeeld.
 
 `vives_browser\` kan sessiegegevens bevatten en hoort eveneens niet in een publieke repository.
 
@@ -468,7 +447,11 @@ Belangrijk: `.gitignore` voorkomt dat niet-getrackte bestanden worden toegevoegd
 
 ## 14. GitHub
 
-Het project is geschikt om later op GitHub te plaatsen als leer- en portfolio-project.
+Deze repository wordt gebruikt als leer- en portfolio-project en staat op GitHub:
+
+```text
+https://github.com/SanderHenderyckx/VIVES-Dynamic-Wallpaper
+```
 
 Bestanden die normaal in de repository thuishoren:
 
@@ -531,3 +514,58 @@ De huidige versie is specifiek gekoppeld aan VIVES Plus. Een toekomstige uitbrei
 Deze uitbreidingen zijn bewust nog geen onderdeel van de huidige stabiele versie.
 
 ---
+
+## 18. Architectuuroverzicht
+
+```text
+                    ┌──────────────────────────┐
+                    │ Windows Task Scheduler   │
+                    │ elke 1 uur               │
+                    └────────────┬─────────────┘
+                                 │
+                                 ▼
+                    ┌──────────────────────────┐
+                    │ wallpaper.py             │
+                    └────────────┬─────────────┘
+                                 │
+                         JWT controleren
+                                 │
+                    ┌────────────┴─────────────┐
+                    │                          │
+                 geldig                bijna/verlopen
+                    │                          │
+                    ▼                          ▼
+              VIVES API                vives_login.py
+                    │                          │
+                    │                   Playwright
+                    │                          │
+                    │                 VIVES / KU Leuven
+                    │                          │
+                    │                  Authenticator
+                    │                          │
+                    │                          ▼
+                    │                    /mobile/jwt
+                    │                          │
+                    │                    nieuwe JWT
+                    │                          │
+                    │                     jwt.json
+                    │                          │
+                    └────────────┬─────────────┘
+                                 ▼
+                    ┌──────────────────────────┐
+                    │ PNG genereren            │
+                    │ + wallpaper instellen    │
+                    └──────────────────────────┘
+```
+
+---
+
+## 19. Referenties
+
+- VIVES Plus: https://plus.vives.be/mobile/login
+- Python `subprocess`: https://docs.python.org/3/library/subprocess.html
+- Python `sys.executable`: https://docs.python.org/3/library/sys.html
+- Pillow `ImageDraw`: https://pillow.readthedocs.io/en/latest/reference/ImageDraw.html
+- Playwright browser automation: https://playwright.dev/python/docs/api/class-browsertype
+- GitHub repository documentation: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-readmes
+- GitHub guidance on reviewing AI-generated code: https://docs.github.com/en/copilot/tutorials/review-ai-generated-code
