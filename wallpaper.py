@@ -1,14 +1,14 @@
-import json
-import requests
-import ctypes
 import base64
-import subprocess
+import ctypes
+import json
 import re
+import subprocess
 import sys
 
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import requests
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -21,16 +21,16 @@ CONFIG_FILE = BASE / "config.json"
 EVENTS_FILE = BASE / "last_events.json"
 OUTPUT = BASE / "vives_wallpaper.png"
 
+API_URL = "https://plus.vives.be/api/events"
+
 TITLE = "VIVES"
 
-# Alleen voor handmatige tests.
+# Alleen gebruiken voor handmatige tests.
 TEST_FORCE_RELOGIN = False
 
 # Gebruik de gewone Python-interpreter voor de interactieve login.
 # Dit werkt ook wanneer wallpaper.py via pythonw.exe wordt gestart.
 PYTHON_EXE = Path(sys.executable).with_name("python.exe")
-
-API_URL = "https://plus.vives.be/api/events"
 
 
 # ---------- CONFIGURATIE ----------
@@ -43,7 +43,7 @@ DEFAULT_CONFIG = {
 
 
 def load_config():
-    """Laad configuratie en gebruik defaults wanneer nodig."""
+    """Laad de configuratie en gebruik defaults wanneer nodig."""
     config = DEFAULT_CONFIG.copy()
 
     if not CONFIG_FILE.exists():
@@ -87,16 +87,24 @@ SCALE = min(
 
 
 def s(value):
-    """Schaalt een waarde volgens het huidige schermformaat."""
+    """Schaal een waarde volgens het huidige schermformaat."""
     return max(1, int(round(value * SCALE)))
 
 
 # ---------- TOKEN ----------
 
+def read_token_file():
+    """Lees de token uit jwt.json."""
+    with open(TOKEN_FILE, encoding="utf-8") as f:
+        return json.load(f)["id_token"]
+
+
 def validate_token(token):
     """
-    Controleer of de JWT syntactisch geldig is en
-    geef het vervaltijdstip terug.
+    Controleer de JWT-structuur en geef het vervaltijdstip terug.
+
+    De handtekening wordt hier niet cryptografisch gecontroleerd.
+    De VIVES API valideert de token bij de daadwerkelijke aanvraag.
     """
     payload = token.split(".")[1]
     payload += "=" * (-len(payload) % 4)
@@ -121,18 +129,23 @@ def run_login():
     )
 
 
-def read_token_file():
-    """Lees de token uit jwt.json."""
-    with open(TOKEN_FILE, encoding="utf-8") as f:
-        return json.load(f)["id_token"]
+def refresh_token():
+    """Voer opnieuw de VIVES-login uit en geef de nieuwe token terug."""
+    run_login()
+
+    token = read_token_file()
+    validate_token(token)
+
+    return token
 
 
 def load_token():
-    """Laad een geldige token of start indien nodig opnieuw de login."""
+    """Laad een bruikbare token of start indien nodig opnieuw de login."""
     token = None
     expires_at = None
 
     if TOKEN_FILE.exists():
+
         try:
             token = read_token_file()
             expires_at = validate_token(token)
@@ -147,17 +160,20 @@ def load_token():
         ):
             print("Ongeldige VIVES-token gevonden.")
 
+    # Geen bruikbare token gevonden.
     if not token:
+
         run_login()
 
         token = read_token_file()
         expires_at = validate_token(token)
 
-    # 10 minuten marge.
+    # 10 minuten veiligheidsmarge.
     if (
         TEST_FORCE_RELOGIN
         or datetime.now() >= expires_at - timedelta(minutes=10)
     ):
+
         print("VIVES-token verlopen of bijna verlopen.")
 
         run_login()
@@ -168,7 +184,7 @@ def load_token():
     return token
 
 
-# ---------- LAATSTE SUCCESVOLLE DATA ----------
+# ---------- LAATSTE SUCCESVOLLE ROOSTER ----------
 
 def save_events(events):
     """Bewaar de laatst succesvol opgehaalde roosterdata."""
@@ -196,6 +212,7 @@ def load_saved_events():
         return None, None
 
     try:
+
         with open(EVENTS_FILE, encoding="utf-8") as f:
             data = json.load(f)
 
@@ -218,7 +235,7 @@ def load_saved_events():
         return None, None
 
 
-# ---------- API ----------
+# ---------- VIVES API ----------
 
 def get_events(token, today, end_date):
     """Haal het VIVES-rooster op."""
@@ -234,14 +251,55 @@ def get_events(token, today, end_date):
         timeout=15
     )
 
+    if response.status_code == 401:
+        raise PermissionError("VIVES-token geweigerd.")
+
     response.raise_for_status()
 
     events = response.json()
 
     if not isinstance(events, list):
-        raise ValueError("VIVES API gaf geen lijst met events terug.")
+        raise ValueError(
+            "VIVES API gaf geen lijst met events terug."
+        )
 
     return events
+
+
+def fetch_events(token, today, end_date):
+    """
+    Haal het rooster op.
+
+    Bij een 401 wordt één keer opnieuw ingelogd en opnieuw geprobeerd.
+    """
+    try:
+
+        return get_events(
+            token,
+            today,
+            end_date
+        )
+
+    except PermissionError:
+
+        print(
+            "VIVES-token geweigerd. "
+            "Opnieuw inloggen..."
+        )
+
+        new_token = refresh_token()
+
+        print(
+            "Nieuwe token ontvangen. "
+            "API wordt opnieuw geprobeerd."
+        )
+
+        # Tweede poging.
+        return get_events(
+            new_token,
+            today,
+            end_date
+        )
 
 
 # ---------- LETTERTYPES ----------
@@ -328,6 +386,23 @@ def clean_location(location):
     )[0].strip()
 
 
+def format_saved_time(saved_at):
+    """Maak het opgeslagen tijdstip leesbaar."""
+    if not saved_at:
+        return "Laatste succesvolle gegevens beschikbaar"
+
+    try:
+        saved_datetime = datetime.fromisoformat(saved_at)
+
+        return (
+            f"Laatst succesvol bijgewerkt "
+            f"{saved_datetime:%d/%m %H:%M}"
+        )
+
+    except ValueError:
+        return "Laatste succesvolle gegevens beschikbaar"
+
+
 # ---------- WALLPAPER MAKEN ----------
 
 def create_wallpaper(
@@ -337,7 +412,7 @@ def create_wallpaper(
     saved_at=None,
     error_message=None
 ):
-    """Maak de wallpaper op basis van roosterdata."""
+    """Maak en stel de VIVES-wallpaper in."""
     img = Image.new(
         "RGB",
         (WIDTH, HEIGHT),
@@ -359,7 +434,7 @@ def create_wallpaper(
 
     y += s(60)
 
-    # ---------- STATUSMELDING ----------
+    # ---------- STATUS ----------
 
     if stale:
 
@@ -372,22 +447,9 @@ def create_wallpaper(
 
         y += s(28)
 
-        if saved_at:
-            try:
-                saved_datetime = datetime.fromisoformat(saved_at)
-                saved_text = (
-                    f"Laatst succesvol bijgewerkt "
-                    f"{saved_datetime:%d/%m %H:%M}"
-                )
-            except ValueError:
-                saved_text = "Laatste succesvolle gegevens beschikbaar"
-
-        else:
-            saved_text = "Laatste succesvolle gegevens beschikbaar"
-
         draw.text(
             (x, y),
-            saved_text,
+            format_saved_time(saved_at),
             font=small_font,
             fill=GREY
         )
@@ -395,6 +457,7 @@ def create_wallpaper(
         y += s(35)
 
         if error_message:
+
             draw.text(
                 (x, y),
                 error_message,
@@ -416,8 +479,6 @@ def create_wallpaper(
 
         current = today + timedelta(days=day_offset)
 
-        # ---------- DAG ----------
-
         draw.text(
             (x, y),
             f"{day_name} {current.day:02d}/{current.month:02d}",
@@ -427,7 +488,7 @@ def create_wallpaper(
 
         y += s(42)
 
-        # ---------- EVENTS VAN DEZE DAG ----------
+        # ---------- EVENTS ----------
 
         day_events = [
             event
@@ -465,6 +526,7 @@ def create_wallpaper(
             for event in day_events:
 
                 try:
+
                     start = datetime.fromisoformat(
                         event["startDateTime"]
                     )
@@ -513,10 +575,7 @@ def create_wallpaper(
 
                 # ---------- LOKAAL ----------
 
-                if (
-                    config["show_location"]
-                    and location
-                ):
+                if config["show_location"] and location:
 
                     draw.text(
                         (x + s(150), y),
@@ -527,7 +586,7 @@ def create_wallpaper(
 
                 y += s(30)
 
-                # ---------- VAKNAAM ----------
+                # ---------- VAK ----------
 
                 draw.text(
                     (x, y),
@@ -553,7 +612,7 @@ def create_wallpaper(
 
         y += s(28)
 
-    # ---------- UPDATE TIJDSTIP ----------
+    # ---------- UPDATE TIJD ----------
 
     if config["show_update_time"]:
 
@@ -598,93 +657,100 @@ def create_wallpaper(
 
 # ---------- HOOFDPROGRAMMA ----------
 
-today = datetime.now().date()
-end_date = today + timedelta(days=3)
+def main():
+    """Voer de wallpaper-update uit."""
+    today = datetime.now().date()
+    end_date = today + timedelta(days=3)
 
-token = load_token()
+    token = load_token()
 
-try:
+    try:
 
-    events = get_events(
-        token,
-        today,
-        end_date
-    )
+        events = fetch_events(
+            token,
+            today,
+            end_date
+        )
 
-    # Alleen opslaan wanneer de API succesvol was.
-    save_events(events)
+        # Alleen opslaan wanneer de API succesvol was.
+        save_events(events)
+
+        create_wallpaper(
+            events,
+            today
+        )
+
+        print()
+        print("Wallpaper gemaakt:")
+        print(OUTPUT)
+        print()
+        print(f"Scherm: {WIDTH}x{HEIGHT}")
+        print(f"Schaalfactor: {SCALE:.3f}")
+        print()
+
+    except PermissionError:
+
+        # Ook de tweede 401 na een nieuwe login
+        # komt hier terecht.
+        print(
+            "Nieuwe VIVES-token wordt nog steeds geweigerd."
+        )
+
+        use_saved_events(
+            today,
+            "VIVES-token geweigerd - rooster niet bijgewerkt"
+        )
+
+    except requests.RequestException as e:
+
+        print(
+            f"VIVES API niet bereikbaar: {e}"
+        )
+
+        use_saved_events(
+            today,
+            "API-fout - rooster niet bijgewerkt"
+        )
+
+    except ValueError as e:
+
+        print(
+            f"Ongeldig antwoord van de VIVES API: {e}"
+        )
+
+        use_saved_events(
+            today,
+            "Ongeldig API-antwoord"
+        )
+
+
+def use_saved_events(today, error_message):
+    """Gebruik het laatst succesvol opgeslagen rooster."""
+    events, saved_at = load_saved_events()
+
+    if events is None:
+
+        print(
+            "Geen eerdere roostergegevens beschikbaar."
+        )
+
+        return
 
     create_wallpaper(
         events,
-        today
+        today,
+        stale=True,
+        saved_at=saved_at,
+        error_message=error_message
     )
-
-    print()
-    print("Wallpaper gemaakt:")
-    print(OUTPUT)
-    print()
-    print(f"Scherm: {WIDTH}x{HEIGHT}")
-    print(f"Schaalfactor: {SCALE:.3f}")
-    print()
-
-except requests.RequestException as e:
 
     print(
-        f"VIVES API niet bereikbaar: {e}"
+        "Laatste succesvolle roostergegevens "
+        "worden gebruikt."
     )
 
-    events, saved_at = load_saved_events()
 
-    if events is not None:
+# ---------- START ----------
 
-        create_wallpaper(
-            events,
-            today,
-            stale=True,
-            saved_at=saved_at,
-            error_message="API-fout - rooster niet bijgewerkt"
-        )
-
-        print(
-            "Laatste succesvolle roostergegevens "
-            "worden gebruikt."
-        )
-
-    else:
-
-        print(
-            "Geen eerdere roostergegevens beschikbaar."
-        )
-
-        sys.exit(1)
-
-except ValueError as e:
-
-    print(
-        f"Ongeldig antwoord van de VIVES API: {e}"
-    )
-
-    events, saved_at = load_saved_events()
-
-    if events is not None:
-
-        create_wallpaper(
-            events,
-            today,
-            stale=True,
-            saved_at=saved_at,
-            error_message="Ongeldig API-antwoord"
-        )
-
-        print(
-            "Laatste succesvolle roostergegevens "
-            "worden gebruikt."
-        )
-
-    else:
-
-        print(
-            "Geen eerdere roostergegevens beschikbaar."
-        )
-
-        sys.exit(1)
+if __name__ == "__main__":
+    main()
